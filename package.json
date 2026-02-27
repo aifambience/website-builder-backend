@@ -5,6 +5,7 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
+    "build": "tsc",
     "dev": "tsx watch --env-file=.env src/index.ts",
     "start": "node dist/index.js",
     "legacy-start": "node src/app.js",
