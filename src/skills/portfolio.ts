@@ -29,25 +29,13 @@ Technical rules:
 - Semantic HTML with proper ARIA attributes
 - The primary color, accent color, and background are injected separately — use them as Tailwind arbitrary values [#hexcode]
 - If bg is dark (#1* or #0*), use light text (text-white / text-gray-100); otherwise use dark text
-
-File requirements:
-- package.json must include: next, react, react-dom, tailwindcss, postcss, autoprefixer, typescript, @types/react, @types/node
-- tailwind.config.ts must include the app/ content path
-- app/globals.css must include the Tailwind directives
-- app/layout.tsx must set proper metadata
 - app/page.tsx implements the full portfolio
-- README.md documents the project and how to run it
 `.trim(),
-  requiredFiles: [
-    "package.json",
-    "tsconfig.json",
-    "tailwind.config.ts",
-    "postcss.config.js",
-    "app/layout.tsx",
-    "app/globals.css",
-    "app/page.tsx",
-    "README.md",
-  ],
+  scaffold: { id: "next-tailwind-ts" },
+  llm: {
+    requiredFiles: ["app/page.tsx"],
+    allowExtraFiles: true,
+  },
   colorThemes: {
     dark:    { primary: "#F9FAFB", accent: "#A78BFA", bg: "#0F0F0F" },
     light:   { primary: "#111827", accent: "#6366F1", bg: "#FFFFFF" },

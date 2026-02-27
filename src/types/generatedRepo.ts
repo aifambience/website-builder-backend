@@ -6,6 +6,7 @@ export const GeneratedFile = z.object({
 });
 
 export const GeneratedRepoSchema = z.object({
+  siteTitle: z.string().min(1).max(100),
   files: z.array(GeneratedFile).min(1),
 });
 

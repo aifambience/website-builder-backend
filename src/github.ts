@@ -102,6 +102,95 @@ export async function upsertFile(
 }
 
 /**
+ * Push all files to a repo in a single commit using the Git Tree API.
+ *
+ * Creates all blobs in parallel, builds one tree, one commit, then creates
+ * or updates the branch ref. Handles both empty repos (no existing branch)
+ * and repos with an auto-init commit.
+ *
+ * @param files  - { path, content } pairs; content is plain UTF-8 string
+ * @param branch - branch to create/update (e.g. "main")
+ */
+export async function pushAllFiles(
+  owner: string,
+  repo: string,
+  files: Array<{ path: string; content: string }>,
+  message: string,
+  branch: string
+): Promise<{ commitSha: string }> {
+  // Create all blobs in parallel
+  const blobShas = await Promise.all(
+    files.map(async (f) => {
+      const res = await octokit().rest.git.createBlob({
+        owner,
+        repo,
+        content: Buffer.from(f.content, "utf8").toString("base64"),
+        encoding: "base64",
+      });
+      return res.data.sha;
+    })
+  );
+
+  // Find existing branch to use as parent (handles auto_init'd org repos)
+  let parentSha: string | undefined;
+  let baseTreeSha: string | undefined;
+  try {
+    const ref = await octokit().rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+    parentSha = ref.data.object.sha;
+    const commit = await octokit().rest.git.getCommit({ owner, repo, commit_sha: parentSha });
+    baseTreeSha = commit.data.tree.sha;
+  } catch (err: any) {
+    if (err.status !== 404) throw err;
+    // Empty repo — no existing branch, proceed without base tree
+  }
+
+  // Create tree with all blobs
+  const treeRes = await octokit().rest.git.createTree({
+    owner,
+    repo,
+    ...(baseTreeSha ? { base_tree: baseTreeSha } : {}),
+    tree: files.map((f, i) => ({
+      path: f.path,
+      mode: "100644" as const,
+      type: "blob" as const,
+      sha: blobShas[i],
+    })),
+  });
+
+  // Create commit
+  const commitRes = await octokit().rest.git.createCommit({
+    owner,
+    repo,
+    message,
+    tree: treeRes.data.sha,
+    parents: parentSha ? [parentSha] : [],
+  });
+
+  // Create the branch ref, or update it if it already exists
+  try {
+    await octokit().rest.git.createRef({
+      owner,
+      repo,
+      ref: `refs/heads/${branch}`,
+      sha: commitRes.data.sha,
+    });
+  } catch (err: any) {
+    if (err.status === 422) {
+      await octokit().rest.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${branch}`,
+        sha: commitRes.data.sha,
+      });
+    } else {
+      throw err;
+    }
+  }
+
+  return { commitSha: commitRes.data.sha };
+}
+
+/**
  * Delete a file from the repository.
  * Throws a 404-shaped error if the file does not exist.
  */
