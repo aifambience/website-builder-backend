@@ -2,6 +2,36 @@
 
 Minimal Node.js + TypeScript backend to create and update GitHub repositories using a server-side PAT.
 
+       Source Tree:
+       /home/sid/projects/website-builder-backend/
+       ├── src/
+       │   ├── index.ts                    # Express server (main entry point)
+       │   ├── env.ts                      # Environment variable management
+       │   ├── github.ts                   # GitHub API integration (Octokit wrapper)
+       │   ├── store.ts                    # In-memory run storage
+       │   ├── validation.ts               # Zod schemas for request validation
+       │   ├── llmCall.ts                  # LLM test script
+       │   ├── orchestrator/
+       │   │   └── run.ts                  # Main orchestration logic (prompt → repo)
+       │   ├── llm/
+       │   │   ├── generateFiles.ts        # LLM file generation (JSON parsing, validation)
+       │   │   └── promptBuilder.ts        # Prompt composition (system + user message)
+       │   ├── skills/
+       │   │   ├── types.ts                # SkillConfig interface
+       │   │   ├── minimal.ts              # Minimal design skill (8-file Next.js)
+       │   │   ├── saas.ts                 # SaaS landing page skill (8-file Next.js)
+       │   │   ├── portfolio.ts            # Portfolio site skill (8-file Next.js)
+       │   │   └── index.ts                # Skill registry and getSkill()
+       │   └── types/
+       │       └── generatedRepo.ts        # Zod schema for LLM output
+       ├── dist/                           # Compiled JavaScript (tsconfig output)
+       ├── package.json                    # Dependencies, scripts, ESM
+       ├── tsconfig.json                   # TypeScript config (ES2022, NodeNext)
+       ├── render.yaml                     # Render.com deployment config
+       ├── .env.example                    # Environment template
+       └── README.md                        # Documentation
+
+
 Requirements
 
 - Node 20+

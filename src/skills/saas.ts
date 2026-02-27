@@ -27,25 +27,13 @@ Technical rules:
 - Mobile-first and fully responsive — use grid and flex for layout
 - Semantic HTML with proper ARIA attributes
 - The primary color, accent color, and background are injected separately — use them as Tailwind arbitrary values [#hexcode]
-
-File requirements:
-- package.json must include: next, react, react-dom, tailwindcss, postcss, autoprefixer, typescript, @types/react, @types/node
-- tailwind.config.ts must include the app/ content path
-- app/globals.css must include the Tailwind directives
-- app/layout.tsx must set proper metadata
 - app/page.tsx implements the full landing page
-- README.md documents the project and how to run it
 `.trim(),
-  requiredFiles: [
-    "package.json",
-    "tsconfig.json",
-    "tailwind.config.ts",
-    "postcss.config.js",
-    "app/layout.tsx",
-    "app/globals.css",
-    "app/page.tsx",
-    "README.md",
-  ],
+  scaffold: { id: "next-tailwind-ts" },
+  llm: {
+    requiredFiles: ["app/page.tsx"],
+    allowExtraFiles: true,
+  },
   colorThemes: {
     indigo:  { primary: "#6366F1", accent: "#8B5CF6", bg: "#F9FAFB" },
     blue:    { primary: "#2563EB", accent: "#3B82F6", bg: "#F8FAFC" },

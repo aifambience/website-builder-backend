@@ -4,8 +4,32 @@ import { getEnv } from "./env.js";
 // Octokit is instantiated lazily for the same reason.
 let _octokit: Octokit | null = null;
 function octokit(): Octokit {
-  if (!_octokit) _octokit = new Octokit({ auth: getEnv().token });
+  if (!_octokit) {
+    const timeoutMs = Number(process.env.GITHUB_REQUEST_TIMEOUT_MS) || 20_000;
+    _octokit = new Octokit({
+      auth: getEnv().token,
+      request: { timeout: timeoutMs },
+    });
+  }
   return _octokit;
+}
+
+function normalizeRepoPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/+/, "").trim();
+}
+
+function dedupeAndNormalizeFiles(
+  files: Array<{ path: string; content: string }>
+): Array<{ path: string; content: string }> {
+  const deduped = new Map<string, string>();
+
+  for (const file of files) {
+    const normalizedPath = normalizeRepoPath(file.path);
+    if (!normalizedPath) continue;
+    deduped.set(normalizedPath, file.content);
+  }
+
+  return Array.from(deduped.entries()).map(([path, content]) => ({ path, content }));
 }
 
 // ---------------------------------------------------------------------------
@@ -25,13 +49,12 @@ export async function createRepo(
   const commonParams = {
     name: repoName,
     private: isPrivate,
-    // Do NOT pass auto_init — we write the first file ourselves so we control
-    // the commit message and content.
+    auto_init: true,
   } as const;
 
   const res =
     ownerType === "org"
-      ? await octokit().rest.repos.createInOrg({ org: owner, auto_init: true, ...commonParams })
+      ? await octokit().rest.repos.createInOrg({ org: owner, ...commonParams })
       : await octokit().rest.repos.createForAuthenticatedUser(commonParams);
 
   return {
@@ -99,6 +122,113 @@ export async function upsertFile(
     action: existingSha ? "updated" : "created",
     commitSha: res.data.commit.sha!,
   };
+}
+
+/**
+ * Push all files to a repo in a single commit using the Git Tree API.
+ *
+ * Creates all blobs in parallel, builds one tree, one commit, then creates
+ * or updates the branch ref. Handles both empty repos (no existing branch)
+ * and repos with an auto-init commit.
+ *
+ * @param files  - { path, content } pairs; content is plain UTF-8 string
+ * @param branch - branch to create/update (e.g. "main")
+ */
+export async function pushAllFiles(
+  owner: string,
+  repo: string,
+  files: Array<{ path: string; content: string }>,
+  message: string,
+  branch: string
+): Promise<{ commitSha: string }> {
+  const normalizedFiles = dedupeAndNormalizeFiles(files);
+  if (normalizedFiles.length === 0) {
+    throw new Error("No valid files to push");
+  }
+
+  // Create blobs one by one so failures are attributable to a specific file.
+  const blobShas: string[] = [];
+  for (const file of normalizedFiles) {
+    try {
+      const res = await octokit().rest.git.createBlob({
+        owner,
+        repo,
+        content: Buffer.from(file.content, "utf8").toString("base64"),
+        encoding: "base64",
+      });
+      blobShas.push(res.data.sha);
+    } catch (err: any) {
+      throw new Error(`Failed to create blob for "${file.path}": ${err.message}`);
+    }
+  }
+
+  // Find existing branch to use as parent (handles auto_init'd org repos)
+  let parentSha: string | undefined;
+  let baseTreeSha: string | undefined;
+  try {
+    const ref = await octokit().rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+    parentSha = ref.data.object.sha;
+    const commit = await octokit().rest.git.getCommit({ owner, repo, commit_sha: parentSha });
+    baseTreeSha = commit.data.tree.sha;
+  } catch (err: any) {
+    if (err.status !== 404) throw err;
+    // Empty repo — no existing branch, proceed without base tree
+  }
+
+  // Create tree with all blobs
+  let treeRes;
+  try {
+    treeRes = await octokit().rest.git.createTree({
+      owner,
+      repo,
+      ...(baseTreeSha ? { base_tree: baseTreeSha } : {}),
+      tree: normalizedFiles.map((f, i) => ({
+        path: f.path,
+        mode: "100644" as const,
+        type: "blob" as const,
+        sha: blobShas[i],
+      })),
+    });
+  } catch (err: any) {
+    throw new Error(`Failed to create tree: ${err.message}`);
+  }
+
+  // Create commit
+  let commitRes;
+  try {
+    commitRes = await octokit().rest.git.createCommit({
+      owner,
+      repo,
+      message,
+      tree: treeRes.data.sha,
+      parents: parentSha ? [parentSha] : [],
+    });
+  } catch (err: any) {
+    throw new Error(`Failed to create commit: ${err.message}`);
+  }
+
+  // Create the branch ref, or update it if it already exists
+  try {
+    await octokit().rest.git.createRef({
+      owner,
+      repo,
+      ref: `refs/heads/${branch}`,
+      sha: commitRes.data.sha,
+    });
+  } catch (err: any) {
+    if (err.status === 422) {
+      await octokit().rest.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${branch}`,
+        sha: commitRes.data.sha,
+      });
+    } else {
+      throw err;
+    }
+  }
+
+  return { commitSha: commitRes.data.sha };
 }
 
 /**

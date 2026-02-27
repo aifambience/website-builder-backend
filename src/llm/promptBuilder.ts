@@ -25,18 +25,21 @@ Use these exact hex values as Tailwind arbitrary values, e.g. bg-[${theme.primar
 
 ---
 
-Output format — return ONLY valid JSON, no markdown fences, no explanations:
-{
-  "files": [
-    { "path": "package.json", "content": "..." },
-    ...
-  ]
+The following scaffold files are already generated and committed — do NOT output them:
+package.json, tsconfig.json, next.config.mjs, postcss.config.mjs,
+app/globals.css, app/layout.tsx, .gitignore
+
+Required files (every one must be present in the tool call):
+${skill.llm.requiredFiles.map((f) => `- ${f}`).join("\n")}
+${skill.llm.allowExtraFiles
+  ? "\nYou may also include additional files (e.g. components/*, lib/*) if the design warrants it."
+  : "\nDo not output any files besides those listed above."
 }
+All file contents must be complete and runnable — no placeholder comments like "// add your code here".
 
-Required files (every one must be present, no extras):
-${skill.requiredFiles.map((f) => `- ${f}`).join("\n")}
-
-All file contents must be complete and runnable — no placeholder comments like "// add your code here".`;
+IMPORTANT — React Server Components rule:
+Any file that uses React hooks (useState, useEffect, useRef, etc.) or DOM event handlers (onClick, onSubmit, onChange, etc.) MUST have "use client"; as its very first line.
+app/page.tsx almost always needs "use client"; — add it unless the page is purely static markup with zero interactivity.`;
 
   const userMessage = `Build a Next.js website for: ${userPrompt}`;
 

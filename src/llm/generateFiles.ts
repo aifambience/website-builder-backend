@@ -1,60 +1,87 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getEnv } from "../env.js";
-import { GeneratedRepo, GeneratedRepoSchema } from "../types/generatedRepo.js";
+import { GeneratedRepoSchema } from "../types/generatedRepo.js";
 import { getSkill, DEFAULT_SKILL } from "../skills/index.js";
 import { buildPrompt } from "./promptBuilder.js";
+import { getScaffoldFiles, SCAFFOLD_PATHS } from "../scaffolds/next-tailwind-ts.js";
 
 const client = new Anthropic({ apiKey: getEnv().llmApiKey });
 
-function normalizeModelText(content: Anthropic.Messages.Message["content"]): string {
-  const textBlocks = content.filter((block) => block.type === "text");
-  return textBlocks.map((block) => block.text).join("\n").trim();
-}
+type GeneratedFile = { path: string; content: string };
+export type LLMResult = { siteTitle: string; files: GeneratedFile[] };
 
-function extractJson(text: string): string {
-  const cleaned = text.replace(/```json|```/g, "").trim();
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error("LLM did not return a valid JSON object");
-  }
-
-  return cleaned.slice(firstBrace, lastBrace + 1);
-}
+const GENERATE_FILES_TOOL: Anthropic.Tool = {
+  name: "generate_files",
+  description: "Output the generated website files and site title.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      siteTitle: {
+        type: "string",
+        description: "A short descriptive title for this website (max 60 chars)",
+      },
+      files: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            path: { type: "string" },
+            content: { type: "string" },
+          },
+          required: ["path", "content"],
+        },
+      },
+    },
+    required: ["siteTitle", "files"],
+  },
+};
 
 export async function generateFilesFromLLM(
   prompt: string,
   skillName: string = DEFAULT_SKILL,
   colorTheme?: string
-): Promise<GeneratedRepo> {
+): Promise<LLMResult> {
   const skill = getSkill(skillName);
   const resolvedTheme = colorTheme ?? skill.defaultColorTheme;
   const { system, userMessage } = buildPrompt(prompt, skill, resolvedTheme);
 
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 8096,
+    max_tokens: 16000,
     system,
     messages: [{ role: "user", content: userMessage }],
+    tools: [GENERATE_FILES_TOOL],
+    tool_choice: { type: "tool", name: "generate_files" },
   });
 
-  const text = normalizeModelText(message.content);
-  const parsed = JSON.parse(extractJson(text));
-  const repo = GeneratedRepoSchema.parse(parsed);
+  const toolBlock = message.content.find((block) => block.type === "tool_use") as
+    | Anthropic.ToolUseBlock
+    | undefined;
+  if (!toolBlock) {
+    throw new Error("LLM did not call the generate_files tool");
+  }
 
-  const fileMap = new Map(repo.files.map((file) => [file.path, file]));
-  const missingFiles = skill.requiredFiles.filter((path) => !fileMap.has(path));
-  const extraFiles = repo.files.filter((f) => !skill.requiredFiles.includes(f.path));
+  const llmOutput = GeneratedRepoSchema.parse(toolBlock.input);
 
+  // Validate required files are present
+  const fileMap = new Map(llmOutput.files.map((f) => [f.path, f]));
+  const missingFiles = skill.llm.requiredFiles.filter((p) => !fileMap.has(p));
   if (missingFiles.length > 0) {
     throw new Error(`LLM output is missing required files: ${missingFiles.join(", ")}`);
   }
-  if (extraFiles.length > 0) {
-    throw new Error(`LLM output contains unexpected files: ${extraFiles.map((f) => f.path).join(", ")}`);
-  }
+
+  // Determine which LLM files to keep
+  const llmFiles: GeneratedFile[] = skill.llm.allowExtraFiles
+    // Allow extra files but silently drop anything that would override scaffold
+    ? llmOutput.files.filter((f) => !SCAFFOLD_PATHS.has(f.path))
+    // Strict mode: only the declared required files
+    : skill.llm.requiredFiles.map((p) => fileMap.get(p)!);
+
+  // Merge: locked scaffold first, then LLM UI files
+  const scaffoldFiles = getScaffoldFiles(llmOutput.siteTitle);
 
   return {
-    files: skill.requiredFiles.map((path) => fileMap.get(path)!),
+    siteTitle: llmOutput.siteTitle,
+    files: [...scaffoldFiles, ...llmFiles],
   };
 }

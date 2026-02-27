@@ -7,6 +7,8 @@ export function getEnv() {
     llmApiKey: process.env.ANTHROPIC_API_KEY!,
     ownerType: (process.env.GITHUB_OWNER_TYPE || "user") as "user" | "org",
     port: Number(process.env.PORT) || 3000,
+    // Optional — if set, each new run is deployed to Vercel automatically
+    vercelToken: process.env.VERCEL_TOKEN,
   } as const;
 }
 

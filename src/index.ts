@@ -1,5 +1,6 @@
 import "dotenv/config";
 
+import path from "path";
 import express, { NextFunction, Request, Response } from "express";
 import cors from "cors";
 import { ZodError } from "zod";
@@ -9,6 +10,8 @@ import * as github from "./github.js";
 import { getRun } from "./store.js";
 import { runPromptToRepo } from "./orchestrator/run.js";
 import { listSkills } from "./skills/index.js";
+
+const buildsDir = path.join(process.cwd(), "builds");
 
 // ---------------------------------------------------------------------------
 // Startup validation — fail fast before binding the port
@@ -117,6 +120,25 @@ app.post(
 // ── GET /skills ──────────────────────────────────────────────────────────────
 app.get("/skills", (_req: Request, res: Response) => {
         res.json(listSkills());
+});
+
+// ── GET /preview-builds/:id (and /:id/*) ────────────────────────────────────
+app.use("/preview-builds/:id", (req: Request, res: Response, next: NextFunction) => {
+        const run = getRun(req.params.id);
+        if (!run) return res.status(404).json({ error: "run not found" });
+
+        if (run.buildStatus === "ready") {
+                const siteDir = path.join(buildsDir, run.runId);
+                // Strip the /preview-builds/:id prefix so express.static sees /
+                req.url = req.url.replace(`/${req.params.id}`, "") || "/";
+                return express.static(siteDir, { index: "index.html" })(req, res, next);
+        }
+
+        const status = run.buildStatus === "failed" ? 500 : 202;
+        res.status(status).json({
+                buildStatus: run.buildStatus,
+                ...(run.buildError ? { buildError: run.buildError } : {}),
+        });
 });
 
 // ── Global error handler ─────────────────────────────────────────────────────
