@@ -15,19 +15,19 @@ const PACKAGE_JSON = `{
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "typescript": "latest",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "tailwindcss": "latest",
-    "postcss": "latest",
-    "autoprefixer": "latest",
-    "eslint": "latest",
-    "eslint-config-next": "latest"
+    "typescript": "^5.8.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "postcss": "^8.5.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.3.0"
   }
 }
 `;
@@ -63,29 +63,16 @@ const nextConfig = {
 export default nextConfig;
 `;
 
-const TAILWIND_CONFIG = `import type { Config } from "tailwindcss";
-
-export default {
-  content: [
-    "./app/**/*.{js,ts,jsx,tsx,mdx}",
-    "./components/**/*.{js,ts,jsx,tsx,mdx}",
-  ],
-  theme: { extend: {} },
-  plugins: [],
-} satisfies Config;
-`;
-
-const POSTCSS_CONFIG = `module.exports = {
+const POSTCSS_CONFIG = `const config = {
   plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
+    "@tailwindcss/postcss": {},
   },
 };
+
+export default config;
 `;
 
-const GLOBALS_CSS = `@tailwind base;
-@tailwind components;
-@tailwind utilities;
+const GLOBALS_CSS = `@import "tailwindcss";
 `;
 
 const LAYOUT_TSX = `import type { Metadata } from "next";
@@ -131,14 +118,13 @@ next-env.d.ts
 type ScaffoldFile = { path: string; content: string };
 
 const BASE_SCAFFOLD: ScaffoldFile[] = [
-  { path: "package.json",       content: PACKAGE_JSON },
-  { path: "tsconfig.json",      content: TSCONFIG },
-  { path: "next.config.mjs",    content: NEXT_CONFIG },
-  { path: "tailwind.config.ts", content: TAILWIND_CONFIG },
-  { path: "postcss.config.js",  content: POSTCSS_CONFIG },
-  { path: "app/globals.css",    content: GLOBALS_CSS },
-  { path: "app/layout.tsx",     content: LAYOUT_TSX },
-  { path: ".gitignore",         content: GITIGNORE },
+  { path: "package.json",        content: PACKAGE_JSON },
+  { path: "tsconfig.json",       content: TSCONFIG },
+  { path: "next.config.mjs",     content: NEXT_CONFIG },
+  { path: "postcss.config.mjs",  content: POSTCSS_CONFIG },
+  { path: "app/globals.css",     content: GLOBALS_CSS },
+  { path: "app/layout.tsx",      content: LAYOUT_TSX },
+  { path: ".gitignore",          content: GITIGNORE },
 ];
 
 /** Returns scaffold files with __SITE_TITLE__ substituted in layout.tsx. */

@@ -10,22 +10,31 @@ const client = new Anthropic({ apiKey: getEnv().llmApiKey });
 type GeneratedFile = { path: string; content: string };
 export type LLMResult = { siteTitle: string; files: GeneratedFile[] };
 
-function normalizeModelText(content: Anthropic.Messages.Message["content"]): string {
-  const textBlocks = content.filter((block) => block.type === "text");
-  return textBlocks.map((block) => (block as { text: string }).text).join("\n").trim();
-}
-
-function extractJson(text: string): string {
-  const cleaned = text.replace(/```json|```/g, "").trim();
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error("LLM did not return a valid JSON object");
-  }
-
-  return cleaned.slice(firstBrace, lastBrace + 1);
-}
+const GENERATE_FILES_TOOL: Anthropic.Tool = {
+  name: "generate_files",
+  description: "Output the generated website files and site title.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      siteTitle: {
+        type: "string",
+        description: "A short descriptive title for this website (max 60 chars)",
+      },
+      files: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            path: { type: "string" },
+            content: { type: "string" },
+          },
+          required: ["path", "content"],
+        },
+      },
+    },
+    required: ["siteTitle", "files"],
+  },
+};
 
 export async function generateFilesFromLLM(
   prompt: string,
@@ -41,11 +50,18 @@ export async function generateFilesFromLLM(
     max_tokens: 16000,
     system,
     messages: [{ role: "user", content: userMessage }],
+    tools: [GENERATE_FILES_TOOL],
+    tool_choice: { type: "tool", name: "generate_files" },
   });
 
-  const text = normalizeModelText(message.content);
-  const parsed = JSON.parse(extractJson(text));
-  const llmOutput = GeneratedRepoSchema.parse(parsed);
+  const toolBlock = message.content.find((block) => block.type === "tool_use") as
+    | Anthropic.ToolUseBlock
+    | undefined;
+  if (!toolBlock) {
+    throw new Error("LLM did not call the generate_files tool");
+  }
+
+  const llmOutput = GeneratedRepoSchema.parse(toolBlock.input);
 
   // Validate required files are present
   const fileMap = new Map(llmOutput.files.map((f) => [f.path, f]));

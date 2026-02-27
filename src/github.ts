@@ -4,8 +4,32 @@ import { getEnv } from "./env.js";
 // Octokit is instantiated lazily for the same reason.
 let _octokit: Octokit | null = null;
 function octokit(): Octokit {
-  if (!_octokit) _octokit = new Octokit({ auth: getEnv().token });
+  if (!_octokit) {
+    const timeoutMs = Number(process.env.GITHUB_REQUEST_TIMEOUT_MS) || 20_000;
+    _octokit = new Octokit({
+      auth: getEnv().token,
+      request: { timeout: timeoutMs },
+    });
+  }
   return _octokit;
+}
+
+function normalizeRepoPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/+/, "").trim();
+}
+
+function dedupeAndNormalizeFiles(
+  files: Array<{ path: string; content: string }>
+): Array<{ path: string; content: string }> {
+  const deduped = new Map<string, string>();
+
+  for (const file of files) {
+    const normalizedPath = normalizeRepoPath(file.path);
+    if (!normalizedPath) continue;
+    deduped.set(normalizedPath, file.content);
+  }
+
+  return Array.from(deduped.entries()).map(([path, content]) => ({ path, content }));
 }
 
 // ---------------------------------------------------------------------------
@@ -25,13 +49,12 @@ export async function createRepo(
   const commonParams = {
     name: repoName,
     private: isPrivate,
-    // Do NOT pass auto_init — we write the first file ourselves so we control
-    // the commit message and content.
+    auto_init: true,
   } as const;
 
   const res =
     ownerType === "org"
-      ? await octokit().rest.repos.createInOrg({ org: owner, auto_init: true, ...commonParams })
+      ? await octokit().rest.repos.createInOrg({ org: owner, ...commonParams })
       : await octokit().rest.repos.createForAuthenticatedUser(commonParams);
 
   return {
@@ -118,18 +141,26 @@ export async function pushAllFiles(
   message: string,
   branch: string
 ): Promise<{ commitSha: string }> {
-  // Create all blobs in parallel
-  const blobShas = await Promise.all(
-    files.map(async (f) => {
+  const normalizedFiles = dedupeAndNormalizeFiles(files);
+  if (normalizedFiles.length === 0) {
+    throw new Error("No valid files to push");
+  }
+
+  // Create blobs one by one so failures are attributable to a specific file.
+  const blobShas: string[] = [];
+  for (const file of normalizedFiles) {
+    try {
       const res = await octokit().rest.git.createBlob({
         owner,
         repo,
-        content: Buffer.from(f.content, "utf8").toString("base64"),
+        content: Buffer.from(file.content, "utf8").toString("base64"),
         encoding: "base64",
       });
-      return res.data.sha;
-    })
-  );
+      blobShas.push(res.data.sha);
+    } catch (err: any) {
+      throw new Error(`Failed to create blob for "${file.path}": ${err.message}`);
+    }
+  }
 
   // Find existing branch to use as parent (handles auto_init'd org repos)
   let parentSha: string | undefined;
@@ -145,26 +176,36 @@ export async function pushAllFiles(
   }
 
   // Create tree with all blobs
-  const treeRes = await octokit().rest.git.createTree({
-    owner,
-    repo,
-    ...(baseTreeSha ? { base_tree: baseTreeSha } : {}),
-    tree: files.map((f, i) => ({
-      path: f.path,
-      mode: "100644" as const,
-      type: "blob" as const,
-      sha: blobShas[i],
-    })),
-  });
+  let treeRes;
+  try {
+    treeRes = await octokit().rest.git.createTree({
+      owner,
+      repo,
+      ...(baseTreeSha ? { base_tree: baseTreeSha } : {}),
+      tree: normalizedFiles.map((f, i) => ({
+        path: f.path,
+        mode: "100644" as const,
+        type: "blob" as const,
+        sha: blobShas[i],
+      })),
+    });
+  } catch (err: any) {
+    throw new Error(`Failed to create tree: ${err.message}`);
+  }
 
   // Create commit
-  const commitRes = await octokit().rest.git.createCommit({
-    owner,
-    repo,
-    message,
-    tree: treeRes.data.sha,
-    parents: parentSha ? [parentSha] : [],
-  });
+  let commitRes;
+  try {
+    commitRes = await octokit().rest.git.createCommit({
+      owner,
+      repo,
+      message,
+      tree: treeRes.data.sha,
+      parents: parentSha ? [parentSha] : [],
+    });
+  } catch (err: any) {
+    throw new Error(`Failed to create commit: ${err.message}`);
+  }
 
   // Create the branch ref, or update it if it already exists
   try {
