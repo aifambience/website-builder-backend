@@ -3,7 +3,9 @@ import { z } from "zod";
 export const RunRequest = z.object({
   prompt: z.string().min(1),
   repoName: z.string().optional(),
-  private: z.boolean().optional()
+  private: z.boolean().optional(),
+  skill: z.string().optional(),
+  colorTheme: z.string().optional(),
 });
 
 export const Operation = z.discriminatedUnion("op", [

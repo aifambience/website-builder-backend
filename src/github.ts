@@ -1,15 +1,5 @@
 import { Octokit } from "@octokit/rest";
-
-// Env vars are read lazily (inside functions) so that dotenv has time to load
-// before this module's code executes.  Validation of required vars happens at
-// startup in index.ts.
-function getEnv() {
-  return {
-    token: process.env.GITHUB_TOKEN!,
-    owner: process.env.GITHUB_OWNER!,
-    ownerType: (process.env.GITHUB_OWNER_TYPE || "user") as "user" | "org",
-  };
-}
+import { getEnv } from "./env.js";
 
 // Octokit is instantiated lazily for the same reason.
 let _octokit: Octokit | null = null;
