@@ -102,6 +102,12 @@ export default function RootLayout({
 }
 `;
 
+const VERCEL_JSON = `{
+  "installCommand": "npm install --legacy-peer-deps",
+  "buildCommand": "npm run build"
+}
+`;
+
 const GITIGNORE = `/node_modules
 /.pnp
 .pnp.js
@@ -130,6 +136,7 @@ const BASE_SCAFFOLD: ScaffoldFile[] = [
   { path: "postcss.config.mjs",  content: POSTCSS_CONFIG },
   { path: "app/globals.css",     content: GLOBALS_CSS },
   { path: "app/layout.tsx",      content: LAYOUT_TSX },
+  { path: "vercel.json",         content: VERCEL_JSON },
   { path: ".gitignore",          content: GITIGNORE },
 ];
 

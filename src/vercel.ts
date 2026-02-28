@@ -42,6 +42,7 @@ export async function createVercelProject(
         repo: `${githubOwner}/${githubRepo}`,
       },
       framework: 'nextjs',
+      installCommand: 'npm install --legacy-peer-deps',
     }),
   });
 
