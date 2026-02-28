@@ -43,7 +43,7 @@ function dedupeAndNormalizeFiles(
 export async function createRepo(
   repoName: string,
   isPrivate = false
-): Promise<{ name: string; html_url: string; default_branch: string }> {
+): Promise<{ id: number; name: string; html_url: string; default_branch: string }> {
   const { owner, ownerType } = getEnv();
 
   const commonParams = {
@@ -58,6 +58,7 @@ export async function createRepo(
       : await octokit().rest.repos.createForAuthenticatedUser(commonParams);
 
   return {
+    id: res.data.id,
     name: res.data.name,
     html_url: res.data.html_url,
     default_branch: res.data.default_branch,

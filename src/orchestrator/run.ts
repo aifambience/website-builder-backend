@@ -1,9 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
 import { getEnv } from "../env.js";
 import { createRepo, pushAllFiles } from "../github.js";
-import { generateFilesFromLLM } from "../llm/generateFiles.js";
+import { generateFilesFromLLM, fixFilesFromLLM } from "../llm/generateFiles.js";
 import { saveRun } from "../store.js";
 import { createVercelProject } from "../vercel.js";
+import { validateBuild } from "../builder/validateBuild.js";
 
 function sanitizeRepoName(name: string): string {
   return name
@@ -41,8 +42,39 @@ export async function runPromptToRepo(input: {
   // Run this BEFORE creating the GitHub repo so a failed LLM call never
   // leaves an empty ghost repo behind.
   log(`calling LLM (skill=${input.skill ?? "default"}, theme=${input.colorTheme ?? "default"})...`);
-  const generated = await generateFilesFromLLM(input.prompt, input.skill, input.colorTheme);
+  let generated = await generateFilesFromLLM(input.prompt, input.skill, input.colorTheme);
   log(`LLM done → ${generated.files.length} files, title="${generated.siteTitle}"`);
+
+  // ── Step 1b: Validate build (with LLM retry loop) ───────────────────────
+  // Only push code to GitHub once we know it compiles.
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    log(`validating build (attempt ${attempt + 1}/${MAX_RETRIES + 1})...`);
+    const validation = await validateBuild(runId, generated.files);
+
+    if (validation.success) {
+      log(`build validation passed`);
+      break;
+    }
+
+    log(`build validation failed: ${validation.error?.slice(0, 200)}`);
+
+    if (attempt === MAX_RETRIES) {
+      throw new Error(
+        `Build validation failed after ${MAX_RETRIES + 1} attempts. Last error:\n${validation.error}`
+      );
+    }
+
+    log(`asking LLM to fix build errors (retry ${attempt + 1})...`);
+    generated = await fixFilesFromLLM(
+      input.prompt,
+      generated,
+      validation.error ?? "Build failed",
+      input.skill,
+      input.colorTheme
+    );
+    log(`LLM fix done → ${generated.files.length} files`);
+  }
 
   // ── Step 2: Create GitHub repo ───────────────────────────────────────────
   log(`creating repo "${repoName}"...`);
@@ -73,7 +105,7 @@ export async function runPromptToRepo(input: {
   if (vercelToken) {
     log(`creating Vercel project...`);
     try {
-      const vercel = await createVercelProject(vercelToken, repo.name, owner, repo.name);
+      const vercel = await createVercelProject(vercelToken, repo.name, owner, repo.name, repo.id, commitSha, repo.default_branch);
       vercelProjectId = vercel.projectId;
       vercelUrl = vercel.url;
       log(`Vercel project created → ${vercelUrl}`);

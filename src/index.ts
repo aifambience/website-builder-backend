@@ -26,7 +26,97 @@ const PORT = env.port;
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(
+        express.json({
+                limit: "1mb",
+                verify: (req: any, _res: any, buf: Buffer) => {
+                        req.rawBody = buf;
+                },
+        })
+);
+
+
+app.get("/webhook", (req, res) => {
+        const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+        console.log(VERIFY_TOKEN)
+
+        const mode = req.query["hub.mode"];
+        const token = req.query["hub.verify_token"];
+        const challenge = req.query["hub.challenge"];
+
+        if (mode === "subscribe" && token === VERIFY_TOKEN) {
+                return res.status(200).send(challenge);
+        }
+
+        res.sendStatus(403);
+})
+
+// ── WhatsApp helper ───────────────────────────────────────────────────────────
+async function sendWhatsAppMessage(phoneNumberId: string, to: string, text: string) {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!token) {
+    console.warn("[whatsapp] WHATSAPP_ACCESS_TOKEN not set — skipping reply");
+    return;
+  }
+  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body: text },
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error("[whatsapp] failed to send message:", err);
+  }
+}
+
+// ── POST /webhook ─────────────────────────────────────────────────────────────
+app.post("/webhook", (req, res) => {
+  console.log("Incoming webhook:", JSON.stringify(req.body, null, 2));
+
+  // ACK immediately — WhatsApp requires a fast 200 response
+  res.sendStatus(200);
+
+  const change = req.body?.entry?.[0]?.changes?.[0]?.value;
+  const message = change?.messages?.[0];
+
+  // Only handle inbound text messages
+  if (!message || message.type !== "text") return;
+
+  const from: string = message.from;            // sender's WhatsApp ID
+  const text: string = message.text?.body ?? "";
+  const phoneNumberId: string = change?.metadata?.phone_number_id;
+
+  if (!text.trim() || !phoneNumberId) return;
+
+  // Process asynchronously so we never block the webhook response
+  (async () => {
+    try {
+      await sendWhatsAppMessage(phoneNumberId, from, "Building your website... This may take a minute!");
+
+      console.log(`[webhook] building site for ${from}: "${text.slice(0, 80)}"`);
+      const result = await runPromptToRepo({ prompt: text });
+      console.log(`[webhook] run ${result.runId} done → vercelUrl=${result.vercelUrl}`);
+
+      const reply = result.vercelUrl
+        ? `Your website is ready!\n\n${result.vercelUrl}`
+        : `Your site was generated! GitHub repo: ${result.repoUrl}`;
+
+      await sendWhatsAppMessage(phoneNumberId, from, reply);
+    } catch (err) {
+      console.error("[webhook] error processing message:", err);
+      await sendWhatsAppMessage(phoneNumberId, from, "Sorry, something went wrong building your website. Please try again.");
+    }
+  })();
+});
+
 
 // ── POST /runs ──────────────────────────────────────────────────────────────
 app.post("/runs", async (req: Request, res: Response, next: NextFunction) => {
@@ -161,6 +251,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
         console.error("[unhandled error]", err);
         res.status(500).json({ error: "internal server error" });
 });
+
 
 app.listen(PORT, () => {
         console.log(`[startup] website-builder listening on http://localhost:${PORT}`);
