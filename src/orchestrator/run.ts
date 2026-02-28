@@ -105,7 +105,7 @@ export async function runPromptToRepo(input: {
   if (vercelToken) {
     log(`creating Vercel project...`);
     try {
-      const vercel = await createVercelProject(vercelToken, repo.name, owner, repo.name);
+      const vercel = await createVercelProject(vercelToken, repo.name, owner, repo.name, repo.id, commitSha, repo.default_branch);
       vercelProjectId = vercel.projectId;
       vercelUrl = vercel.url;
       log(`Vercel project created → ${vercelUrl}`);

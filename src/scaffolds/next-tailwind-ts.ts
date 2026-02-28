@@ -55,15 +55,9 @@ const TSCONFIG = `{
 }
 `;
 
-const NEXT_CONFIG = `import { fileURLToPath } from 'url';
-import path from 'path';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/** @type {import('next').NextConfig} */
+const NEXT_CONFIG = `/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  outputFileTracingRoot: __dirname,
 };
 
 export default nextConfig;
@@ -102,12 +96,6 @@ export default function RootLayout({
 }
 `;
 
-const VERCEL_JSON = `{
-  "installCommand": "npm install --legacy-peer-deps",
-  "buildCommand": "npm run build"
-}
-`;
-
 const GITIGNORE = `/node_modules
 /.pnp
 .pnp.js
@@ -136,7 +124,6 @@ const BASE_SCAFFOLD: ScaffoldFile[] = [
   { path: "postcss.config.mjs",  content: POSTCSS_CONFIG },
   { path: "app/globals.css",     content: GLOBALS_CSS },
   { path: "app/layout.tsx",      content: LAYOUT_TSX },
-  { path: "vercel.json",         content: VERCEL_JSON },
   { path: ".gitignore",          content: GITIGNORE },
 ];
 
